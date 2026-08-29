@@ -646,9 +646,15 @@ def generate_today_occurrences():
         schedules = result.scalars().all()
 
         created_count = 0
+        invalid_timezone_count = 0      
 
         for schedule in schedules:
-            local_timezone = ZoneInfo(schedule.timezone)
+            try:
+                 local_timezone = ZoneInfo(schedule.timezone)
+
+            except ZoneInfoNotFoundError:
+                invalid_timezone_count += 1
+                continue
 
             now_local = datetime.now(local_timezone)
 
@@ -689,5 +695,6 @@ def generate_today_occurrences():
 
         return {
             "created_count": created_count,
+            "invalid_timezone_count": invalid_timezone_count,
             "message": "Today's dose occurrences generated",
         }
