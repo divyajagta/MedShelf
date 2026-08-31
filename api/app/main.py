@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from sqlalchemy import select
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from sqlalchemy.dialects.postgresql import insert
 
 from api.app.database import SessionLocal
 from api.app.models import (
@@ -668,28 +669,22 @@ def generate_today_occurrences():
                 timezone.utc
             )
 
-            existing_result = session.execute(
-                select(DoseOccurrence).where(
-                    DoseOccurrence.schedule_id == schedule.id,
-                    DoseOccurrence.scheduled_for == scheduled_utc,
+            statement = (
+                insert(DoseOccurrence)
+                .values(
+                    schedule_id=schedule.id,
+                    scheduled_for=scheduled_utc,
+                    status=DoseStatus.PENDING,
+                )
+                .on_conflict_do_nothing(
+                    constraint="uq_dose_schedule_time"
                 )
             )
 
-            existing_occurrence = (
-                existing_result.scalars().first()
-            )
+            insert_result = session.execute(statement)
 
-            if existing_occurrence is not None:
-                continue
-
-            occurrence = DoseOccurrence(
-                schedule_id=schedule.id,
-                scheduled_for=scheduled_utc,
-            )
-
-            session.add(occurrence)
-
-            created_count += 1
+            if insert_result.rowcount == 1:
+                created_count += 1
 
         session.commit()
 
