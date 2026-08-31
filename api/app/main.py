@@ -3,6 +3,8 @@ from sqlalchemy import select
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy.dialects.postgresql import insert
+from api.app.security import hash_password
+from sqlalchemy.exc import IntegrityError
 
 from api.app.database import SessionLocal
 from api.app.models import (
@@ -11,6 +13,7 @@ from api.app.models import (
     Person,
     Medicine,
     MedicineSchedule,
+    User,
 )
 from api.app.schemas import (
     DoseOccurrenceCreate,
@@ -20,7 +23,10 @@ from api.app.schemas import (
     MedicineScheduleUpdate,
     PersonCreate,
     PersonUpdate,
+    UserCreate,
+    UserResponse,
 )
+
 app = FastAPI(
     title="MedShelf API",
     version="0.1.0",
@@ -693,3 +699,52 @@ def generate_today_occurrences():
             "invalid_timezone_count": invalid_timezone_count,
             "message": "Today's dose occurrences generated",
         }
+
+@app.post(
+    "/api/v1/auth/signup",
+    response_model=UserResponse,
+    status_code=201,
+)
+def signup(user_data: UserCreate):
+    with SessionLocal() as session:
+        email = str(user_data.email).lower()
+
+        existing_result = session.execute(
+            select(User).where(
+                User.email == email
+            )
+        )
+
+        existing_user = (
+            existing_result.scalars().first()
+        )
+
+        if existing_user is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Email already registered",
+            )
+
+        user = User(
+            email=email,
+            password_hash=hash_password(
+                user_data.password
+            ),
+        )
+
+        session.add(user)
+
+        try:
+            session.commit()
+
+        except IntegrityError:
+            session.rollback()
+
+            raise HTTPException(
+                status_code=409,
+                detail="Email already registered",
+            )
+
+        session.refresh(user)
+
+        return user 

@@ -1,6 +1,6 @@
 from datetime import date, datetime, time
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 
 
 class PersonCreate(BaseModel):
@@ -35,3 +35,14 @@ class MedicineScheduleUpdate(BaseModel):
 
 class DoseOccurrenceCreate(BaseModel):
     scheduled_for: datetime
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8)
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: EmailStr
+    is_active: bool
+    created_at: datetime
