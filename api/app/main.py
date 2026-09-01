@@ -6,6 +6,8 @@ from sqlalchemy.dialects.postgresql import insert
 from api.app.security import (
     hash_password,
     verify_password,
+    create_access_token,
+
 )
 from sqlalchemy.exc import IntegrityError
 
@@ -29,6 +31,7 @@ from api.app.schemas import (
     UserCreate,
     UserResponse,
     UserLogin,
+    TokenResponse,
 )
 
 app = FastAPI(
@@ -755,8 +758,8 @@ def signup(user_data: UserCreate):
 
 @app.post(
     "/api/v1/auth/login",
-    response_model=UserResponse,
-)
+  response_model=TokenResponse,
+  )
 def login(user_data: UserLogin):
     with SessionLocal() as session:
         email = str(user_data.email).lower()
@@ -792,4 +795,9 @@ def login(user_data: UserLogin):
                 detail="Account is inactive",
             )
 
-        return user
+        access_token = create_access_token(user.id)
+
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+        }
