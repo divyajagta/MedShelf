@@ -46,3 +46,25 @@ def create_access_token(user_id: int) -> str:
         JWT_SECRET_KEY,
         algorithm=JWT_ALGORITHM,
     )
+
+def decode_access_token(token: str) -> int | None:
+    try:
+        payload = jwt.decode(
+            token,
+            JWT_SECRET_KEY,
+            algorithms=[JWT_ALGORITHM],
+        )
+
+        user_id = payload.get("sub")
+
+        if user_id is None:
+            return None
+
+        return int(user_id)
+
+    except (
+        jwt.ExpiredSignatureError,
+        jwt.InvalidTokenError,
+        ValueError,
+    ):
+        return None

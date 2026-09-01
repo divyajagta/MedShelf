@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import select
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -7,6 +7,7 @@ from api.app.security import (
     hash_password,
     verify_password,
     create_access_token,
+    decode_access_token,
 
 )
 from sqlalchemy.exc import IntegrityError
@@ -34,9 +35,18 @@ from api.app.schemas import (
     TokenResponse,
 )
 
+from fastapi.security import (
+    HTTPAuthorizationCredentials,
+    HTTPBearer,
+)
+
 app = FastAPI(
     title="MedShelf API",
     version="0.1.0",
+)
+
+bearer_scheme = HTTPBearer(
+    auto_error=False
 )
 
 
@@ -801,3 +811,58 @@ def login(user_data: UserLogin):
             "access_token": access_token,
             "token_type": "bearer",
         }
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(
+        bearer_scheme
+    ),
+):
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required",
+        )
+
+    user_id = decode_access_token(
+        credentials.credentials
+    )
+
+    if user_id is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token",
+        )
+
+    with SessionLocal() as session:
+        result = session.execute(
+            select(User).where(
+                User.id == user_id
+            )
+        )
+
+        user = result.scalars().first()
+
+        if user is None:
+            raise HTTPException(
+                status_code=401,
+                detail="User not found",
+            )
+
+        if not user.is_active:
+            raise HTTPException(
+                status_code=403,
+                detail="Account is inactive",
+            )
+
+        return user
+
+@app.get(
+    "/api/v1/auth/me",
+    response_model=UserResponse,
+)
+def get_me(
+    current_user: User = Depends(
+        get_current_user
+    ),
+):
+    return current_user
