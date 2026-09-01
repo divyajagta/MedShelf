@@ -3,7 +3,10 @@ from sqlalchemy import select
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy.dialects.postgresql import insert
-from api.app.security import hash_password
+from api.app.security import (
+    hash_password,
+    verify_password,
+)
 from sqlalchemy.exc import IntegrityError
 
 from api.app.database import SessionLocal
@@ -25,6 +28,7 @@ from api.app.schemas import (
     PersonUpdate,
     UserCreate,
     UserResponse,
+    UserLogin,
 )
 
 app = FastAPI(
@@ -748,3 +752,44 @@ def signup(user_data: UserCreate):
         session.refresh(user)
 
         return user 
+
+@app.post(
+    "/api/v1/auth/login",
+    response_model=UserResponse,
+)
+def login(user_data: UserLogin):
+    with SessionLocal() as session:
+        email = str(user_data.email).lower()
+
+        result = session.execute(
+            select(User).where(
+                User.email == email
+            )
+        )
+
+        user = result.scalars().first()
+
+        if user is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid email or password",
+            )
+
+        password_is_correct = verify_password(
+            user_data.password,
+            user.password_hash,
+        )
+
+        if not password_is_correct:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid email or password",
+            )
+
+        if not user.is_active:
+            raise HTTPException(
+                status_code=403,
+                detail="Account is inactive",
+            )
+
+        return user
