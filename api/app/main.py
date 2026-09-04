@@ -1087,3 +1087,54 @@ def get_me(
     ),
 ):
     return current_user
+
+@app.get("/api/v1/alerts")
+def get_alerts(
+    current_user: User = Depends(get_current_user),
+):
+    today = datetime.now(timezone.utc).date()
+    expiry_limit = today + timedelta(days=14)
+
+    with SessionLocal() as session:
+        result = session.execute(
+            select(Medicine, Person)
+            .join(
+                Person,
+                Medicine.person_id == Person.id,
+            )
+            .where(
+                Person.user_id == current_user.id
+            )
+        )
+
+        rows = result.all()
+
+        alerts = []
+
+        for medicine, person in rows:
+            if (
+                medicine.expiry_date is not None
+                and medicine.expiry_date <= expiry_limit
+            ):
+                alerts.append(
+                    {
+                        "type": "expiry",
+                        "medicine_id": medicine.id,
+                        "medicine_name": medicine.name,
+                        "person_name": person.name,
+                        "expiry_date": medicine.expiry_date,
+                    }
+                )
+
+            if medicine.quantity_remaining <= 5:
+                alerts.append(
+                    {
+                        "type": "low_stock",
+                        "medicine_id": medicine.id,
+                        "medicine_name": medicine.name,
+                        "person_name": person.name,
+                        "quantity_remaining": medicine.quantity_remaining,
+                    }
+                )
+
+        return alerts
