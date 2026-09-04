@@ -14,7 +14,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-
+#{"email": "familytwo@example.com","password": "FamilyTwo123"}
 class Base(DeclarativeBase):
     pass
 
@@ -47,6 +47,12 @@ class Person(Base):
     __tablename__ = "persons"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=True,
+    )
+
     name: Mapped[str] = mapped_column(String(100))
 
 class Medicine(Base):

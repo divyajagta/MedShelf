@@ -49,6 +49,49 @@ bearer_scheme = HTTPBearer(
     auto_error=False
 )
 
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(
+        bearer_scheme
+    ),
+):
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required",
+        )
+
+    user_id = decode_access_token(
+        credentials.credentials
+    )
+
+    if user_id is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token",
+        )
+
+    with SessionLocal() as session:
+        result = session.execute(
+            select(User).where(
+                User.id == user_id
+            )
+        )
+
+        user = result.scalars().first()
+
+        if user is None:
+            raise HTTPException(
+                status_code=401,
+                detail="User not found",
+            )
+
+        if not user.is_active:
+            raise HTTPException(
+                status_code=403,
+                detail="Account is inactive",
+            )
+
+        return user
 
 @app.get("/")
 def home():
@@ -61,32 +104,34 @@ def health():
 
 
 @app.post("/api/v1/persons")
-def create_person(data: PersonCreate):
+def create_person(
+    person_data: PersonCreate,
+    current_user: User = Depends(get_current_user),
+):
     with SessionLocal() as session:
-        person = Person(name=data.name)
+        person = Person(
+            user_id=current_user.id,
+            name=person_data.name,
+        )
 
         session.add(person)
         session.commit()
         session.refresh(person)
 
-        return {
-            "id": person.id,
-            "name": person.name,
-        }
+        return person
 
 @app.get("/api/v1/persons")
-def get_persons():
+def get_persons(
+    current_user: User = Depends(get_current_user),
+):
     with SessionLocal() as session:
-        result = session.execute(select(Person))
-        persons = result.scalars().all()
+        result = session.execute(
+            select(Person).where(
+                Person.user_id == current_user.id
+            )
+        )
 
-        return [
-            {
-                "id": person.id,
-                "name": person.name,
-            }
-            for person in persons
-        ]
+        return result.scalars().all()
 
 @app.patch("/api/v1/persons/{person_id}")
 def update_person(person_id: int, data: PersonUpdate):
@@ -128,9 +173,19 @@ def delete_person(person_id: int):
         }
 
 @app.post("/api/v1/medicines")
-def create_medicine(data: MedicineCreate):
+def create_medicine(
+    data: MedicineCreate,
+    current_user: User = Depends(get_current_user),
+):
     with SessionLocal() as session:
-        person = session.get(Person, data.person_id)
+        result = session.execute(
+            select(Person).where(
+                Person.id == data.person_id,
+                Person.user_id == current_user.id,
+            )
+        )
+
+        person = result.scalars().first()
 
         if person is None:
             raise HTTPException(
@@ -139,7 +194,7 @@ def create_medicine(data: MedicineCreate):
             )
 
         medicine = Medicine(
-            person_id=data.person_id,
+            person_id=person.id,
             name=data.name,
             strength=data.strength,
             dosage_form=data.dosage_form,
@@ -164,9 +219,21 @@ def create_medicine(data: MedicineCreate):
         }
 
 @app.get("/api/v1/medicines")
-def get_medicines():
+def get_medicines(
+    current_user: User = Depends(get_current_user),
+):
     with SessionLocal() as session:
-        result = session.execute(select(Medicine))
+        result = session.execute(
+            select(Medicine)
+            .join(
+                Person,
+                Medicine.person_id == Person.id,
+            )
+            .where(
+                Person.user_id == current_user.id
+            )
+        )
+
         medicines = result.scalars().all()
 
         return [
@@ -184,9 +251,19 @@ def get_medicines():
         ]
 
 @app.get("/api/v1/persons/{person_id}/medicines")
-def get_person_medicines(person_id: int):
+def get_person_medicines(
+    person_id: int,
+    current_user: User = Depends(get_current_user),
+):
     with SessionLocal() as session:
-        person = session.get(Person, person_id)
+        person_result = session.execute(
+            select(Person).where(
+                Person.id == person_id,
+                Person.user_id == current_user.id,
+            )
+        )
+
+        person = person_result.scalars().first()
 
         if person is None:
             raise HTTPException(
@@ -195,7 +272,9 @@ def get_person_medicines(person_id: int):
             )
 
         result = session.execute(
-            select(Medicine).where(Medicine.person_id == person_id)
+            select(Medicine).where(
+                Medicine.person_id == person_id
+            )
         )
 
         medicines = result.scalars().all()
@@ -215,9 +294,25 @@ def get_person_medicines(person_id: int):
         ]
 
 @app.patch("/api/v1/medicines/{medicine_id}")
-def update_medicine(medicine_id: int, data: MedicineUpdate):
+def update_medicine(
+    medicine_id: int,
+    data: MedicineUpdate,
+    current_user: User = Depends(get_current_user),
+):
     with SessionLocal() as session:
-        medicine = session.get(Medicine, medicine_id)
+        result = session.execute(
+            select(Medicine)
+            .join(
+                Person,
+                Medicine.person_id == Person.id,
+            )
+            .where(
+                Medicine.id == medicine_id,
+                Person.user_id == current_user.id,
+            )
+        )
+
+        medicine = result.scalars().first()
 
         if medicine is None:
             raise HTTPException(
@@ -247,9 +342,24 @@ def update_medicine(medicine_id: int, data: MedicineUpdate):
         }
 
 @app.delete("/api/v1/medicines/{medicine_id}")
-def delete_medicine(medicine_id: int):
+def delete_medicine(
+    medicine_id: int,
+    current_user: User = Depends(get_current_user),
+):
     with SessionLocal() as session:
-        medicine = session.get(Medicine, medicine_id)
+        result = session.execute(
+            select(Medicine)
+            .join(
+                Person,
+                Medicine.person_id == Person.id,
+            )
+            .where(
+                Medicine.id == medicine_id,
+                Person.user_id == current_user.id,
+            )
+        )
+
+        medicine = result.scalars().first()
 
         if medicine is None:
             raise HTTPException(
@@ -268,9 +378,22 @@ def delete_medicine(medicine_id: int):
 def create_medicine_schedule(
     medicine_id: int,
     data: MedicineScheduleCreate,
+    current_user: User = Depends(get_current_user),
 ):
     with SessionLocal() as session:
-        medicine = session.get(Medicine, medicine_id)
+        result = session.execute(
+            select(Medicine)
+            .join(
+                Person,
+                Medicine.person_id == Person.id,
+            )
+            .where(
+                Medicine.id == medicine_id,
+                Person.user_id == current_user.id,
+            )
+        )
+
+        medicine = result.scalars().first()
 
         if medicine is None:
             raise HTTPException(
@@ -279,7 +402,7 @@ def create_medicine_schedule(
             )
 
         schedule = MedicineSchedule(
-            medicine_id=medicine_id,
+            medicine_id=medicine.id,
             time_of_day=data.time_of_day,
             timezone=data.timezone,
         )
@@ -297,9 +420,24 @@ def create_medicine_schedule(
         }
 
 @app.get("/api/v1/medicines/{medicine_id}/schedules")
-def get_medicine_schedules(medicine_id: int):
+def get_medicine_schedules(
+    medicine_id: int,
+    current_user: User = Depends(get_current_user),
+):
     with SessionLocal() as session:
-        medicine = session.get(Medicine, medicine_id)
+        medicine_result = session.execute(
+            select(Medicine)
+            .join(
+                Person,
+                Medicine.person_id == Person.id,
+            )
+            .where(
+                Medicine.id == medicine_id,
+                Person.user_id == current_user.id,
+            )
+        )
+
+        medicine = medicine_result.scalars().first()
 
         if medicine is None:
             raise HTTPException(
@@ -309,30 +447,36 @@ def get_medicine_schedules(medicine_id: int):
 
         result = session.execute(
             select(MedicineSchedule).where(
-                MedicineSchedule.medicine_id == medicine_id
+                MedicineSchedule.medicine_id == medicine.id
             )
         )
 
-        schedules = result.scalars().all()
-
-        return [
-            {
-                "id": schedule.id,
-                "medicine_id": schedule.medicine_id,
-                "time_of_day": schedule.time_of_day,
-                "timezone": schedule.timezone,
-                "is_active": schedule.is_active,
-            }
-            for schedule in schedules
-        ]
+        return result.scalars().all()
 
 @app.patch("/api/v1/schedules/{schedule_id}")
 def update_schedule(
     schedule_id: int,
     data: MedicineScheduleUpdate,
+    current_user: User = Depends(get_current_user),
 ):
     with SessionLocal() as session:
-        schedule = session.get(MedicineSchedule, schedule_id)
+        result = session.execute(
+            select(MedicineSchedule)
+            .join(
+                Medicine,
+                MedicineSchedule.medicine_id == Medicine.id,
+            )
+            .join(
+                Person,
+                Medicine.person_id == Person.id,
+            )
+            .where(
+                MedicineSchedule.id == schedule_id,
+                Person.user_id == current_user.id,
+            )
+        )
+
+        schedule = result.scalars().first()
 
         if schedule is None:
             raise HTTPException(
@@ -352,14 +496,31 @@ def update_schedule(
             "timezone": schedule.timezone,
             "is_active": schedule.is_active,
         }
-
+    
 @app.post("/api/v1/schedules/{schedule_id}/occurrences")
 def create_dose_occurrence(
     schedule_id: int,
     data: DoseOccurrenceCreate,
+    current_user: User = Depends(get_current_user),
 ):
     with SessionLocal() as session:
-        schedule = session.get(MedicineSchedule, schedule_id)
+        result = session.execute(
+            select(MedicineSchedule)
+            .join(
+                Medicine,
+                MedicineSchedule.medicine_id == Medicine.id,
+            )
+            .join(
+                Person,
+                Medicine.person_id == Person.id,
+            )
+            .where(
+                MedicineSchedule.id == schedule_id,
+                Person.user_id == current_user.id,
+            )
+        )
+
+        schedule = result.scalars().first()
 
         if schedule is None:
             raise HTTPException(
@@ -374,7 +535,7 @@ def create_dose_occurrence(
             )
 
         occurrence = DoseOccurrence(
-            schedule_id=schedule_id,
+            schedule_id=schedule.id,
             scheduled_for=data.scheduled_for,
         )
 
@@ -390,11 +551,30 @@ def create_dose_occurrence(
             "snoozed_until": occurrence.snoozed_until,
             "acted_at": occurrence.acted_at,
         }
-
+    
 @app.get("/api/v1/schedules/{schedule_id}/occurrences")
-def get_dose_occurrences(schedule_id: int):
+def get_dose_occurrences(
+    schedule_id: int,
+    current_user: User = Depends(get_current_user),
+):
     with SessionLocal() as session:
-        schedule = session.get(MedicineSchedule, schedule_id)
+        schedule_result = session.execute(
+            select(MedicineSchedule)
+            .join(
+                Medicine,
+                MedicineSchedule.medicine_id == Medicine.id,
+            )
+            .join(
+                Person,
+                Medicine.person_id == Person.id,
+            )
+            .where(
+                MedicineSchedule.id == schedule_id,
+                Person.user_id == current_user.id,
+            )
+        )
+
+        schedule = schedule_result.scalars().first()
 
         if schedule is None:
             raise HTTPException(
@@ -404,8 +584,12 @@ def get_dose_occurrences(schedule_id: int):
 
         result = session.execute(
             select(DoseOccurrence)
-            .where(DoseOccurrence.schedule_id == schedule_id)
-            .order_by(DoseOccurrence.scheduled_for)
+            .where(
+                DoseOccurrence.schedule_id == schedule.id
+            )
+            .order_by(
+                DoseOccurrence.scheduled_for
+            )
         )
 
         occurrences = result.scalars().all()
@@ -425,6 +609,7 @@ def get_dose_occurrences(schedule_id: int):
 @app.get("/api/v1/occurrences/today")
 def get_today_occurrences(
     tz: str = "Asia/Kolkata",
+    current_user: User = Depends(get_current_user),
 ):
     try:
         local_timezone = ZoneInfo(tz)
@@ -474,6 +659,7 @@ def get_today_occurrences(
             .where(
                 DoseOccurrence.scheduled_for >= start_utc,
                 DoseOccurrence.scheduled_for < end_utc,
+                Person.user_id == current_user.id,
             )
             .order_by(DoseOccurrence.scheduled_for)
         )
@@ -505,12 +691,32 @@ def get_today_occurrences(
         ]
 
 @app.patch("/api/v1/occurrences/{occurrence_id}/taken")
-def mark_dose_taken(occurrence_id: int):
+def mark_dose_taken(
+    occurrence_id: int,
+    current_user: User = Depends(get_current_user),
+):
     with SessionLocal() as session:
-        occurrence = session.get(
-            DoseOccurrence,
-            occurrence_id,
+        occurrence = result = session.execute(
+            select(DoseOccurrence)
+            .join(
+                MedicineSchedule,
+                DoseOccurrence.schedule_id == MedicineSchedule.id,
+            )
+            .join(
+                Medicine,
+                MedicineSchedule.medicine_id == Medicine.id,
+            )
+            .join(
+                Person,
+                Medicine.person_id == Person.id,
+            )
+            .where(
+                DoseOccurrence.id == occurrence_id,
+                Person.user_id == current_user.id,
+            )
         )
+
+        occurrence = result.scalars().first()
 
         if occurrence is None:
             raise HTTPException(
@@ -545,12 +751,32 @@ def mark_dose_taken(occurrence_id: int):
         }
 
 @app.patch("/api/v1/occurrences/{occurrence_id}/skipped")
-def mark_dose_skipped(occurrence_id: int):
+def mark_dose_skipped(
+    occurrence_id: int,
+    current_user: User = Depends(get_current_user),
+):
     with SessionLocal() as session:
-        occurrence = session.get(
-            DoseOccurrence,
-            occurrence_id,
+        occurrence = result = session.execute(
+            select(DoseOccurrence)
+            .join(
+                MedicineSchedule,
+                DoseOccurrence.schedule_id == MedicineSchedule.id,
+            )
+            .join(
+                Medicine,
+                MedicineSchedule.medicine_id == Medicine.id,
+            )
+            .join(
+                Person,
+                Medicine.person_id == Person.id,
+            )
+            .where(
+                DoseOccurrence.id == occurrence_id,
+                Person.user_id == current_user.id,
+            )
         )
+
+        occurrence = result.scalars().first()
 
         if occurrence is None:
             raise HTTPException(
@@ -591,12 +817,32 @@ def mark_dose_skipped(occurrence_id: int):
         }
 
 @app.patch("/api/v1/occurrences/{occurrence_id}/snooze")
-def snooze_dose(occurrence_id: int):
+def snooze_dose(
+    occurrence_id: int,
+    current_user: User = Depends(get_current_user),
+):      
     with SessionLocal() as session:
-        occurrence = session.get(
-            DoseOccurrence,
-            occurrence_id,
+        occurrence = result = session.execute(
+            select(DoseOccurrence)
+            .join(
+                MedicineSchedule,
+                DoseOccurrence.schedule_id == MedicineSchedule.id,
+            )
+            .join(
+                Medicine,
+                MedicineSchedule.medicine_id == Medicine.id,
+            )
+            .join(
+                Person,
+                Medicine.person_id == Person.id,
+            )
+            .where(
+                DoseOccurrence.id == occurrence_id,
+                Person.user_id == current_user.id,
+            )
         )
+
+        occurrence = result.scalars().first()
 
         if occurrence is None:
             raise HTTPException(
@@ -635,14 +881,32 @@ def snooze_dose(occurrence_id: int):
         }
 
 @app.patch("/api/v1/occurrences/mark-missed")
-def mark_missed_occurrences():
+def mark_missed_occurrences(
+    current_user: User = Depends(get_current_user),
+):
     now = datetime.now(timezone.utc)
 
     with SessionLocal() as session:
         result = session.execute(
-            select(DoseOccurrence).where(
+            select(DoseOccurrence)
+            .join(
+                MedicineSchedule,
+                DoseOccurrence.schedule_id
+                == MedicineSchedule.id,
+            )
+            .join(
+                Medicine,
+                MedicineSchedule.medicine_id
+                == Medicine.id,
+            )
+            .join(
+                Person,
+                Medicine.person_id == Person.id,
+            )
+            .where(
                 DoseOccurrence.status == DoseStatus.PENDING,
                 DoseOccurrence.scheduled_for < now,
+                Person.user_id == current_user.id,
             )
         )
 
@@ -812,49 +1076,6 @@ def login(user_data: UserLogin):
             "token_type": "bearer",
         }
 
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(
-        bearer_scheme
-    ),
-):
-    if credentials is None:
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication required",
-        )
-
-    user_id = decode_access_token(
-        credentials.credentials
-    )
-
-    if user_id is None:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or expired token",
-        )
-
-    with SessionLocal() as session:
-        result = session.execute(
-            select(User).where(
-                User.id == user_id
-            )
-        )
-
-        user = result.scalars().first()
-
-        if user is None:
-            raise HTTPException(
-                status_code=401,
-                detail="User not found",
-            )
-
-        if not user.is_active:
-            raise HTTPException(
-                status_code=403,
-                detail="Account is inactive",
-            )
-
-        return user
 
 @app.get(
     "/api/v1/auth/me",
