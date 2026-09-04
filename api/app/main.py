@@ -1138,3 +1138,71 @@ def get_alerts(
                 )
 
         return alerts
+
+@app.get("/api/v1/history")
+def get_history(
+    current_user: User = Depends(get_current_user),
+):
+    now = datetime.now(timezone.utc)
+
+    seven_days_ago = now - timedelta(days=7)
+
+    with SessionLocal() as session:
+        result = session.execute(
+            select(
+                DoseOccurrence,
+                MedicineSchedule,
+                Medicine,
+                Person,
+            )
+            .join(
+                MedicineSchedule,
+                DoseOccurrence.schedule_id
+                == MedicineSchedule.id,
+            )
+            .join(
+                Medicine,
+                MedicineSchedule.medicine_id
+                == Medicine.id,
+            )
+            .join(
+                Person,
+                Medicine.person_id == Person.id,
+            )
+            .where(
+                DoseOccurrence.scheduled_for >= seven_days_ago,
+                DoseOccurrence.scheduled_for <= now,
+                DoseOccurrence.status.in_(
+                    [
+                        DoseStatus.TAKEN,
+                        DoseStatus.SKIPPED,
+                        DoseStatus.MISSED,
+                    ]
+                ),
+                Person.user_id == current_user.id,
+            )
+            .order_by(
+                DoseOccurrence.scheduled_for.desc()
+            )
+        )
+
+        rows = result.all()
+
+        return [
+            {
+                "occurrence_id": occurrence.id,
+                "person": {
+                    "id": person.id,
+                    "name": person.name,
+                },
+                "medicine": {
+                    "id": medicine.id,
+                    "name": medicine.name,
+                    "strength": medicine.strength,
+                },
+                "scheduled_for": occurrence.scheduled_for,
+                "status": occurrence.status,
+                "acted_at": occurrence.acted_at,
+            }
+            for occurrence, schedule, medicine, person in rows
+        ]
