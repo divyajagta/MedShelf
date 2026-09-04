@@ -1334,3 +1334,96 @@ def revoke_caregiver_access(
         return {
             "message": "Caregiver access revoked"
         }
+
+@app.get("/api/v1/caregivers/{person_id}/summary")
+def get_caregiver_summary(
+    person_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    now = datetime.now(timezone.utc)
+    seven_days_ago = now - timedelta(days=7)
+
+    with SessionLocal() as session:
+        person_result = session.execute(
+            select(Person).where(
+                Person.id == person_id
+            )
+        )
+
+        person = person_result.scalars().first()
+
+        if person is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Person not found",
+            )
+
+        is_owner = (
+            person.user_id == current_user.id
+        )
+
+        caregiver_result = session.execute(
+            select(CaregiverAccess).where(
+                CaregiverAccess.person_id == person.id,
+                CaregiverAccess.caregiver_user_id
+                == current_user.id,
+            )
+        )
+
+        caregiver_access = (
+            caregiver_result.scalars().first()
+        )
+
+        is_caregiver = (
+            caregiver_access is not None
+        )
+
+        if not is_owner and not is_caregiver:
+            raise HTTPException(
+                status_code=404,
+                detail="Person not found",
+            )
+
+        result = session.execute(
+            select(DoseOccurrence)
+            .join(
+                MedicineSchedule,
+                DoseOccurrence.schedule_id
+                == MedicineSchedule.id,
+            )
+            .join(
+                Medicine,
+                MedicineSchedule.medicine_id
+                == Medicine.id,
+            )
+            .where(
+                Medicine.person_id == person.id,
+                DoseOccurrence.scheduled_for >= seven_days_ago,
+                DoseOccurrence.scheduled_for <= now,
+            )
+        )
+
+        occurrences = result.scalars().all()
+
+        taken_count = 0
+        skipped_count = 0
+        missed_count = 0
+
+        for occurrence in occurrences:
+            if occurrence.status == DoseStatus.TAKEN:
+                taken_count += 1
+
+            elif occurrence.status == DoseStatus.SKIPPED:
+                skipped_count += 1
+
+            elif occurrence.status == DoseStatus.MISSED:
+                missed_count += 1
+
+        return {
+            "person_id": person.id,
+            "person_name": person.name,
+            "days": 7,
+            "taken_count": taken_count,
+            "skipped_count": skipped_count,
+            "missed_count": missed_count,
+        }
