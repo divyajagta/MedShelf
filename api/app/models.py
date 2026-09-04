@@ -143,3 +143,31 @@ class DoseOccurrence(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+
+class CaregiverAccess(Base):
+    __tablename__ = "caregiver_access"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "person_id",
+            "caregiver_user_id",
+            name="uq_person_caregiver",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True
+    )
+
+    person_id: Mapped[int] = mapped_column(
+        ForeignKey("persons.id")
+    )
+
+    caregiver_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id")
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )

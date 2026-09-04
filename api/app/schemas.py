@@ -54,3 +54,7 @@ class UserLogin(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str
+
+class CaregiverGrant(BaseModel):
+    person_id: int
+    caregiver_email: EmailStr

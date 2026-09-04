@@ -20,6 +20,7 @@ from api.app.models import (
     Medicine,
     MedicineSchedule,
     User,
+    CaregiverAccess,
 )
 from api.app.schemas import (
     DoseOccurrenceCreate,
@@ -33,6 +34,7 @@ from api.app.schemas import (
     UserResponse,
     UserLogin,
     TokenResponse,
+    CaregiverGrant,
 )
 
 from fastapi.security import (
@@ -1206,3 +1208,129 @@ def get_history(
             }
             for occurrence, schedule, medicine, person in rows
         ]
+
+@app.post("/api/v1/caregivers/grant")
+def grant_caregiver_access(
+    data: CaregiverGrant,
+    current_user: User = Depends(get_current_user),
+):
+    with SessionLocal() as session:
+        person_result = session.execute(
+            select(Person).where(
+                Person.id == data.person_id,
+                Person.user_id == current_user.id,
+            )
+        )
+
+        person = person_result.scalars().first()
+
+        if person is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Person not found",
+            )
+
+        caregiver_email = str(
+            data.caregiver_email
+        ).lower()
+
+        caregiver_result = session.execute(
+            select(User).where(
+                User.email == caregiver_email
+            )
+        )
+
+        caregiver = caregiver_result.scalars().first()
+
+        if caregiver is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Caregiver user not found",
+            )
+
+        if caregiver.id == current_user.id:
+            raise HTTPException(
+                status_code=400,
+                detail="You already own this person",
+            )
+
+        existing_result = session.execute(
+            select(CaregiverAccess).where(
+                CaregiverAccess.person_id == person.id,
+                CaregiverAccess.caregiver_user_id
+                == caregiver.id,
+            )
+        )
+
+        existing_access = (
+            existing_result.scalars().first()
+        )
+
+        if existing_access is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Caregiver access already granted",
+            )
+
+        access = CaregiverAccess(
+            person_id=person.id,
+            caregiver_user_id=caregiver.id,
+        )
+
+        session.add(access)
+        session.commit()
+        session.refresh(access)
+
+        return {
+            "id": access.id,
+            "person_id": access.person_id,
+            "caregiver_user_id": access.caregiver_user_id,
+            "message": "Caregiver access granted",
+        }
+
+@app.delete(
+    "/api/v1/caregivers/{person_id}/{caregiver_user_id}"
+)
+def revoke_caregiver_access(
+    person_id: int,
+    caregiver_user_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    with SessionLocal() as session:
+        person_result = session.execute(
+            select(Person).where(
+                Person.id == person_id,
+                Person.user_id == current_user.id,
+            )
+        )
+
+        person = person_result.scalars().first()
+
+        if person is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Person not found",
+            )
+
+        access_result = session.execute(
+            select(CaregiverAccess).where(
+                CaregiverAccess.person_id == person_id,
+                CaregiverAccess.caregiver_user_id
+                == caregiver_user_id,
+            )
+        )
+
+        access = access_result.scalars().first()
+
+        if access is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Caregiver access not found",
+            )
+
+        session.delete(access)
+        session.commit()
+
+        return {
+            "message": "Caregiver access revoked"
+        }
