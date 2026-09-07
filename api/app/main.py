@@ -1,3 +1,4 @@
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import select
 from datetime import datetime, time, timedelta, timezone
@@ -45,6 +46,16 @@ from fastapi.security import (
 app = FastAPI(
     title="MedShelf API",
     version="0.1.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 bearer_scheme = HTTPBearer(
