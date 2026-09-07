@@ -1438,3 +1438,70 @@ def get_caregiver_summary(
             "skipped_count": skipped_count,
             "missed_count": missed_count,
         }
+
+@app.get("/api/v1/caregivers/grants")
+def get_caregiver_grants(
+    current_user: User = Depends(get_current_user),
+):
+    with SessionLocal() as session:
+        result = session.execute(
+            select(
+                CaregiverAccess,
+                Person,
+                User,
+            )
+            .join(
+                Person,
+                CaregiverAccess.person_id == Person.id,
+            )
+            .join(
+                User,
+                CaregiverAccess.caregiver_user_id == User.id,
+            )
+            .where(
+                Person.user_id == current_user.id
+            )
+        )
+
+        rows = result.all()
+
+        return [
+            {
+                "id": access.id,
+                "person_id": person.id,
+                "person_name": person.name,
+                "caregiver_user_id": caregiver.id,
+                "caregiver_email": caregiver.email,
+            }
+            for access, person, caregiver in rows
+        ]
+
+@app.get("/api/v1/caregivers/shared-with-me")
+def get_shared_people(
+    current_user: User = Depends(get_current_user),
+):
+    with SessionLocal() as session:
+        result = session.execute(
+            select(
+                CaregiverAccess,
+                Person,
+            )
+            .join(
+                Person,
+                CaregiverAccess.person_id == Person.id,
+            )
+            .where(
+                CaregiverAccess.caregiver_user_id
+                == current_user.id
+            )
+        )
+
+        rows = result.all()
+
+        return [
+            {
+                "person_id": person.id,
+                "person_name": person.name,
+            }
+            for access, person in rows
+        ]
