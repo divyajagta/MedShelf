@@ -143,6 +143,16 @@ class DoseOccurrence(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    
+    first_reminder_sent_at: Mapped[datetime | None] = mapped_column(
+    DateTime(timezone=True),
+    nullable=True,
+    )
+
+    second_reminder_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
 class CaregiverAccess(Base):
     __tablename__ = "caregiver_access"

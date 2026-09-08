@@ -4,6 +4,15 @@ from sqlalchemy import select
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy.dialects.postgresql import insert
+from api.app.jobs import (
+    generate_today_occurrences_for_all_schedules,
+    process_due_reminders,
+)
+from contextlib import asynccontextmanager
+
+from apscheduler.schedulers.background import (
+    BackgroundScheduler
+)
 from api.app.security import (
     hash_password,
     verify_password,
@@ -42,10 +51,51 @@ from fastapi.security import (
     HTTPAuthorizationCredentials,
     HTTPBearer,
 )
+scheduler = BackgroundScheduler(
+    timezone="UTC"
+)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    scheduler.add_job(
+        generate_today_occurrences_for_all_schedules,
+        trigger="interval",
+        seconds=60,
+        id="generate_today_occurrences",
+        replace_existing=True,
+        max_instances=1,
+    )
+
+    scheduler.add_job(
+    process_due_reminders,
+    trigger="interval",
+    seconds=60,
+    id="process_due_reminders",
+    replace_existing=True,
+    max_instances=1,
+    )
+    scheduler.start()
+
+    generate_today_occurrences_for_all_schedules()
+    process_due_reminders()
+
+    print(
+        "MedShelf background scheduler started"
+    )
+
+    try:
+        yield
+
+    finally:
+        scheduler.shutdown(
+            wait=False
+        )
+        
 app = FastAPI(
     title="MedShelf API",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -937,62 +987,9 @@ def mark_missed_occurrences(
 
 @app.post("/api/v1/occurrences/generate-today")
 def generate_today_occurrences():
-    with SessionLocal() as session:
-        result = session.execute(
-            select(MedicineSchedule).where(
-                MedicineSchedule.is_active == True
-            )
-        )
-
-        schedules = result.scalars().all()
-
-        created_count = 0
-        invalid_timezone_count = 0      
-
-        for schedule in schedules:
-            try:
-                 local_timezone = ZoneInfo(schedule.timezone)
-
-            except ZoneInfoNotFoundError:
-                invalid_timezone_count += 1
-                continue
-
-            now_local = datetime.now(local_timezone)
-
-            scheduled_local = datetime.combine(
-                now_local.date(),
-                schedule.time_of_day,
-                tzinfo=local_timezone,
-            )
-
-            scheduled_utc = scheduled_local.astimezone(
-                timezone.utc
-            )
-
-            statement = (
-                insert(DoseOccurrence)
-                .values(
-                    schedule_id=schedule.id,
-                    scheduled_for=scheduled_utc,
-                    status=DoseStatus.PENDING,
-                )
-                .on_conflict_do_nothing(
-                    constraint="uq_dose_schedule_time"
-                )
-            )
-
-            insert_result = session.execute(statement)
-
-            if insert_result.rowcount == 1:
-                created_count += 1
-
-        session.commit()
-
-        return {
-            "created_count": created_count,
-            "invalid_timezone_count": invalid_timezone_count,
-            "message": "Today's dose occurrences generated",
-        }
+    return (
+        generate_today_occurrences_for_all_schedules()
+    )
 
 @app.post(
     "/api/v1/auth/signup",
