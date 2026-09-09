@@ -8,6 +8,10 @@ import {
 
 import { useRouter } from "next/navigation";
 
+import {
+  urlBase64ToUint8Array,
+} from "@/lib/push";
+
 type Dose = {
   occurrence_id: number;
 
@@ -114,9 +118,105 @@ export default function TodayPage() {
     await loadToday();
   }
 
+  async function enableNotifications() {
+    const token =
+      localStorage.getItem("access_token");
+
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+
+    if (!("serviceWorker" in navigator)) {
+      setMessage(
+        "Push notifications are not supported."
+      );
+      return;
+    }
+
+    const permission =
+      await Notification.requestPermission();
+
+    if (permission !== "granted") {
+      setMessage(
+        "Notification permission was not granted."
+      );
+      return;
+    }
+
+    await navigator.serviceWorker.register(
+    "/sw.js"
+    );
+
+    const registration =
+      await navigator.serviceWorker.ready;
+
+    const publicKey =
+      process.env
+        .NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+
+    if (!publicKey) {
+      setMessage(
+        "VAPID public key is missing."
+      );
+      return;
+    }
+
+    const subscription =
+      await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey:
+          urlBase64ToUint8Array(publicKey),
+      });
+
+    const subscriptionJson =
+      subscription.toJSON();
+
+    const response = await fetch(
+      "http://127.0.0.1:8000/api/v1/push/subscribe",
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+
+        body: JSON.stringify({
+          endpoint:
+            subscriptionJson.endpoint,
+          p256dh:
+            subscriptionJson.keys?.p256dh,
+          auth:
+            subscriptionJson.keys?.auth,
+        }),
+      }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      setMessage(
+        result.detail ??
+        "Could not enable notifications."
+      );
+      return;
+    }
+
+    setMessage(
+      "Notifications enabled."
+    );
+  }
+
   return (
     <main className="min-h-screen p-8">
       <div className="mx-auto max-w-2xl">
+        <button
+          onClick={enableNotifications}
+          className="mt-4 rounded border px-4 py-2"
+        >
+          Enable Notifications
+        </button>
         <h1 className="text-3xl font-bold">
           Today's Doses
         </h1>

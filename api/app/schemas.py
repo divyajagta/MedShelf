@@ -58,3 +58,8 @@ class TokenResponse(BaseModel):
 class CaregiverGrant(BaseModel):
     person_id: int
     caregiver_email: EmailStr
+
+class PushSubscriptionCreate(BaseModel):
+    endpoint: str
+    p256dh: str
+    auth: str

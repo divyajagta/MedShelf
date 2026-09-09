@@ -31,6 +31,7 @@ from api.app.models import (
     MedicineSchedule,
     User,
     CaregiverAccess,
+    PushSubscription,
 )
 from api.app.schemas import (
     DoseOccurrenceCreate,
@@ -45,6 +46,7 @@ from api.app.schemas import (
     UserLogin,
     TokenResponse,
     CaregiverGrant,
+    PushSubscriptionCreate,
 )
 
 from fastapi.security import (
@@ -1502,3 +1504,57 @@ def get_shared_people(
             }
             for access, person in rows
         ]
+
+@app.post("/api/v1/push/subscribe")
+def subscribe_to_push(
+    data: PushSubscriptionCreate,
+    current_user: User = Depends(get_current_user),
+):
+    with SessionLocal() as session:
+        result = session.execute(
+            select(PushSubscription).where(
+                PushSubscription.endpoint
+                == data.endpoint
+            )
+        )
+
+        existing_subscription = (
+            result.scalars().first()
+        )
+
+        if existing_subscription is not None:
+            existing_subscription.user_id = (
+                current_user.id
+            )
+
+            existing_subscription.p256dh = (
+                data.p256dh
+            )
+
+            existing_subscription.auth = (
+                data.auth
+            )
+
+            session.commit()
+
+            return {
+                "message":
+                    "Push subscription updated"
+            }
+
+        subscription = PushSubscription(
+            user_id=current_user.id,
+            endpoint=data.endpoint,
+            p256dh=data.p256dh,
+            auth=data.auth,
+        )
+
+        session.add(subscription)
+        session.commit()
+        session.refresh(subscription)
+
+        return {
+            "id": subscription.id,
+            "message":
+                "Push subscription saved",
+        }

@@ -143,7 +143,7 @@ class DoseOccurrence(Base):
         DateTime(timezone=True),
         nullable=True,
     )
-    
+
     first_reminder_sent_at: Mapped[datetime | None] = mapped_column(
     DateTime(timezone=True),
     nullable=True,
@@ -175,6 +175,35 @@ class CaregiverAccess(Base):
 
     caregiver_user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id")
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+class PushSubscription(Base):
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id")
+    )
+
+    endpoint: Mapped[str] = mapped_column(
+        String(1000),
+        unique=True,
+    )
+
+    p256dh: Mapped[str] = mapped_column(
+        String(255)
+    )
+
+    auth: Mapped[str] = mapped_column(
+        String(255)
     )
 
     created_at: Mapped[datetime] = mapped_column(
