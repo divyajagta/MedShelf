@@ -144,9 +144,7 @@ export default function TodayPage() {
       return;
     }
 
-    await navigator.serviceWorker.register(
-    "/sw.js"
-    );
+    await navigator.serviceWorker.register("/sw.js");
 
     const registration =
       await navigator.serviceWorker.ready;

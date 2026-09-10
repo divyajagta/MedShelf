@@ -4,8 +4,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
+from api.app.push import send_push_to_user
 from api.app.database import SessionLocal
 from api.app.models import (
+    Medicine,
+    Person,
     DoseOccurrence,
     DoseStatus,
     MedicineSchedule,
@@ -95,13 +98,57 @@ def process_due_reminders():
         second_reminder_count = 0
 
         for occurrence in occurrences:
+            dose_details = session.execute(
+                select(
+                    Person.user_id,
+                    Person.name,
+                    Medicine.name,
+                    Medicine.strength,
+                )
+                .join(
+                    Medicine,
+                    Medicine.person_id == Person.id,
+                )
+                .join(
+                    MedicineSchedule,
+                    MedicineSchedule.medicine_id
+                    == Medicine.id,
+                )
+                .where(
+                    MedicineSchedule.id
+                    == occurrence.schedule_id
+                )
+            ).first()
+
+            if dose_details is None:
+                continue
+
+            (
+                user_id,
+                person_name,
+                medicine_name,
+                medicine_strength,
+            ) = dose_details
+
             if occurrence.first_reminder_sent_at is None:
-                print(
-                    f"FIRST REMINDER for occurrence {occurrence.id}"
+                
+                push_result = send_push_to_user(
+                    session=session,
+                    user_id=user_id,
+                    title="MedShelf Reminder",
+                    body=(
+                        f"{person_name}: "
+                        f"{medicine_name} "
+                        f"{medicine_strength} is due."
+                    ),
                 )
 
-                occurrence.first_reminder_sent_at = now_utc
-                first_reminder_count += 1
+                if push_result["sent_count"] > 0:
+                    occurrence.first_reminder_sent_at = (
+                        now_utc
+                    )
+
+                    first_reminder_count += 1
 
                 continue
 
@@ -114,12 +161,24 @@ def process_due_reminders():
                 occurrence.second_reminder_sent_at is None
                 and now_utc >= second_reminder_due_at
             ):
-                print(
-                    f"SECOND REMINDER for occurrence {occurrence.id}"
+                push_result = send_push_to_user(
+                    session=session,
+                    user_id=user_id,
+                    title="MedShelf Reminder",
+                    body=(
+                        f"{person_name}: "
+                        f"{medicine_name} "
+                        f"{medicine_strength} "
+                        f"is still pending."
+                    ),
                 )
 
-                occurrence.second_reminder_sent_at = now_utc
-                second_reminder_count += 1
+                if push_result["sent_count"] > 0:
+                    occurrence.second_reminder_sent_at = (
+                        now_utc
+                    )
+
+                    second_reminder_count += 1
 
         session.commit()
 
