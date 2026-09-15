@@ -1,6 +1,6 @@
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Depends, FastAPI, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy.dialects.postgresql import insert
@@ -9,8 +9,6 @@ from api.app.jobs import (
     process_due_reminders,
     process_snoozed_reminders,
     mark_unanswered_doses_missed,
-
-
 )
 from contextlib import asynccontextmanager
 
@@ -786,15 +784,17 @@ def mark_dose_taken(
     current_user: User = Depends(get_current_user),
 ):
     with SessionLocal() as session:
-        occurrence = result = session.execute(
+        occurrence = session.execute(
             select(DoseOccurrence)
             .join(
                 MedicineSchedule,
-                DoseOccurrence.schedule_id == MedicineSchedule.id,
+                DoseOccurrence.schedule_id
+                == MedicineSchedule.id,
             )
             .join(
                 Medicine,
-                MedicineSchedule.medicine_id == Medicine.id,
+                MedicineSchedule.medicine_id
+                == Medicine.id,
             )
             .join(
                 Person,
@@ -804,9 +804,7 @@ def mark_dose_taken(
                 DoseOccurrence.id == occurrence_id,
                 Person.user_id == current_user.id,
             )
-        )
-
-        occurrence = result.scalars().first()
+        ).scalar_one_or_none()
 
         if occurrence is None:
             raise HTTPException(
@@ -814,30 +812,34 @@ def mark_dose_taken(
                 detail="Dose occurrence not found",
             )
 
-        if occurrence.status == DoseStatus.TAKEN:
+        statement = (
+            update(DoseOccurrence)
+            .where(
+                DoseOccurrence.id == occurrence_id,
+                DoseOccurrence.status.in_([
+                    DoseStatus.PENDING,
+                    DoseStatus.SNOOZED,
+                ]),
+            )
+            .values(
+                status=DoseStatus.TAKEN,
+                acted_at=datetime.now(timezone.utc),
+                snoozed_until=None,
+            )
+        )
+
+        result = session.execute(statement)
+        session.commit()
+
+        if result.rowcount == 0:
             return {
-                "id": occurrence.id,
-                "schedule_id": occurrence.schedule_id,
-                "scheduled_for": occurrence.scheduled_for,
-                "status": occurrence.status,
-                "snoozed_until": occurrence.snoozed_until,
-                "acted_at": occurrence.acted_at,
+                "message":
+                    "Dose was already acted on"
             }
 
-        occurrence.status = DoseStatus.TAKEN
-        occurrence.acted_at = datetime.now(timezone.utc)
-        occurrence.snoozed_until = None
-
-        session.commit()
-        session.refresh(occurrence)
-
         return {
-            "id": occurrence.id,
-            "schedule_id": occurrence.schedule_id,
-            "scheduled_for": occurrence.scheduled_for,
-            "status": occurrence.status,
-            "snoozed_until": occurrence.snoozed_until,
-            "acted_at": occurrence.acted_at,
+            "message":
+                "Dose marked as taken"
         }
 
 @app.patch("/api/v1/occurrences/{occurrence_id}/skipped")
