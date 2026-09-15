@@ -7,6 +7,8 @@ from sqlalchemy.dialects.postgresql import insert
 from api.app.jobs import (
     generate_today_occurrences_for_all_schedules,
     process_due_reminders,
+    process_snoozed_reminders,
+
 )
 from contextlib import asynccontextmanager
 
@@ -77,10 +79,21 @@ async def lifespan(app: FastAPI):
     replace_existing=True,
     max_instances=1,
     )
+
+    scheduler.add_job(
+    process_snoozed_reminders,
+    trigger="interval",
+    seconds=60,
+    id="process_snoozed_reminders",
+    replace_existing=True,
+    max_instances=1,
+    )
+
     scheduler.start()
 
     generate_today_occurrences_for_all_schedules()
     process_due_reminders()
+    process_snoozed_reminders()
 
     print(
         "MedShelf background scheduler started"

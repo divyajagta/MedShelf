@@ -186,3 +186,76 @@ def process_due_reminders():
             "first_reminder_count": first_reminder_count,
             "second_reminder_count": second_reminder_count,
         }
+
+
+def process_snoozed_reminders():
+    now_utc = datetime.now(timezone.utc)
+
+    with SessionLocal() as session:
+        result = session.execute(
+            select(DoseOccurrence).where(
+                DoseOccurrence.status == DoseStatus.SNOOZED,
+                DoseOccurrence.snoozed_until.is_not(None),
+                DoseOccurrence.snoozed_until <= now_utc,
+            )
+        )
+
+        occurrences = result.scalars().all()
+
+        reminder_count = 0
+
+        for occurrence in occurrences:
+            dose_details = session.execute(
+                select(
+                    Person.user_id,
+                    Person.name,
+                    Medicine.name,
+                    Medicine.strength,
+                )
+                .join(
+                    Medicine,
+                    Medicine.person_id == Person.id,
+                )
+                .join(
+                    MedicineSchedule,
+                    MedicineSchedule.medicine_id == Medicine.id,
+                )
+                .where(
+                    MedicineSchedule.id == occurrence.schedule_id
+                )
+            ).first()
+
+            if dose_details is None:
+                continue
+
+            (
+                user_id,
+                person_name,
+                medicine_name,
+                medicine_strength,
+            ) = dose_details
+
+            push_result = send_push_to_user(
+                session=session,
+                user_id=user_id,
+                title="MedShelf Reminder",
+                body=(
+                    f"{person_name}: "
+                    f"{medicine_name} "
+                    f"{medicine_strength} "
+                    f"is due after snooze."
+                ),
+            )
+
+            if push_result["sent_count"] > 0:
+                occurrence.status = DoseStatus.PENDING
+                occurrence.first_reminder_sent_at = now_utc
+                occurrence.second_reminder_sent_at = None
+
+                reminder_count += 1
+
+        session.commit()
+
+        return {
+            "snooze_reminder_count": reminder_count
+        }
