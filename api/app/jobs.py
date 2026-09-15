@@ -259,3 +259,31 @@ def process_snoozed_reminders():
         return {
             "snooze_reminder_count": reminder_count
         }
+
+def mark_unanswered_doses_missed():
+    now_utc = datetime.now(timezone.utc)
+
+    with SessionLocal() as session:
+        result = session.execute(
+            select(DoseOccurrence).where(
+                DoseOccurrence.status == DoseStatus.PENDING,
+                DoseOccurrence.second_reminder_sent_at.is_not(None),
+                DoseOccurrence.second_reminder_sent_at
+                <= now_utc - timedelta(minutes=30),
+            )
+        )
+
+        occurrences = result.scalars().all()
+
+        missed_count = 0
+
+        for occurrence in occurrences:
+            occurrence.status = DoseStatus.MISSED
+            occurrence.acted_at = now_utc
+            missed_count += 1
+
+        session.commit()
+
+        return {
+            "missed_count": missed_count
+        }

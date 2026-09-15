@@ -8,6 +8,8 @@ from api.app.jobs import (
     generate_today_occurrences_for_all_schedules,
     process_due_reminders,
     process_snoozed_reminders,
+    mark_unanswered_doses_missed,
+
 
 )
 from contextlib import asynccontextmanager
@@ -89,11 +91,21 @@ async def lifespan(app: FastAPI):
     max_instances=1,
     )
 
+    scheduler.add_job(
+        mark_unanswered_doses_missed,
+        trigger="interval",
+        seconds=60,
+        id="mark_unanswered_doses_missed",
+        replace_existing=True,
+        max_instances=1,
+    )
+
     scheduler.start()
 
     generate_today_occurrences_for_all_schedules()
     process_due_reminders()
     process_snoozed_reminders()
+    mark_unanswered_doses_missed()
 
     print(
         "MedShelf background scheduler started"
