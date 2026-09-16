@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import {
+  authFetch,
+} from "@/lib/api";
 
 type Person = {
   id: number;
@@ -58,42 +61,76 @@ export default function CaregiversPage() {
     return token;
   }
 
-  async function loadData() {
-    const token = await getToken();
+async function loadData() {
+  try {
+    const [
+      personsResponse,
+      grantsResponse,
+      sharedResponse,
+    ] = await Promise.all([
+      authFetch(
+        "http://127.0.0.1:8000/api/v1/persons"
+      ),
+      authFetch(
+        "http://127.0.0.1:8000/api/v1/caregivers/grants"
+      ),
+      authFetch(
+        "http://127.0.0.1:8000/api/v1/caregivers/shared-with-me"
+      ),
+    ]);
 
-    if (!token) return;
+    if (
+      !personsResponse.ok ||
+      !grantsResponse.ok ||
+      !sharedResponse.ok
+    ) {
+      setMessage(
+        "Could not load caregiver data."
+      );
+      return;
+    }
 
-    const personsResponse = await fetch(
-      "http://127.0.0.1:8000/api/v1/persons",
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
+    const [
+      personsData,
+      grantsData,
+      sharedData,
+    ] = await Promise.all([
+      personsResponse.json(),
+      grantsResponse.json(),
+      sharedResponse.json(),
+    ]);
+
+    setPersons(
+      Array.isArray(personsData)
+        ? personsData
+        : []
     );
 
-    const grantsResponse = await fetch(
-      "http://127.0.0.1:8000/api/v1/caregivers/grants",
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
+    setGrants(
+      Array.isArray(grantsData)
+        ? grantsData
+        : []
     );
 
-    const sharedResponse = await fetch(
-      "http://127.0.0.1:8000/api/v1/caregivers/shared-with-me",
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
+    setSharedPeople(
+      Array.isArray(sharedData)
+        ? sharedData
+        : []
     );
-
-    setPersons(await personsResponse.json());
-    setGrants(await grantsResponse.json());
-    setSharedPeople(await sharedResponse.json());
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message !==
+        "Session expired" &&
+      error.message !==
+        "Authentication required"
+    ) {
+      setMessage(
+        "Could not load caregiver data."
+      );
+    }
   }
+}
 
   useEffect(() => {
     loadData();
