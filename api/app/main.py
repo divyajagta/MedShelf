@@ -848,15 +848,17 @@ def mark_dose_skipped(
     current_user: User = Depends(get_current_user),
 ):
     with SessionLocal() as session:
-        occurrence = result = session.execute(
+        occurrence = session.execute(
             select(DoseOccurrence)
             .join(
                 MedicineSchedule,
-                DoseOccurrence.schedule_id == MedicineSchedule.id,
+                DoseOccurrence.schedule_id
+                == MedicineSchedule.id,
             )
             .join(
                 Medicine,
-                MedicineSchedule.medicine_id == Medicine.id,
+                MedicineSchedule.medicine_id
+                == Medicine.id,
             )
             .join(
                 Person,
@@ -866,9 +868,7 @@ def mark_dose_skipped(
                 DoseOccurrence.id == occurrence_id,
                 Person.user_id == current_user.id,
             )
-        )
-
-        occurrence = result.scalars().first()
+        ).scalar_one_or_none()
 
         if occurrence is None:
             raise HTTPException(
@@ -876,53 +876,53 @@ def mark_dose_skipped(
                 detail="Dose occurrence not found",
             )
 
-        if occurrence.status == DoseStatus.SKIPPED:
+        statement = (
+            update(DoseOccurrence)
+            .where(
+                DoseOccurrence.id == occurrence_id,
+                DoseOccurrence.status.in_([
+                    DoseStatus.PENDING,
+                    DoseStatus.SNOOZED,
+                ]),
+            )
+            .values(
+                status=DoseStatus.SKIPPED,
+                acted_at=datetime.now(timezone.utc),
+                snoozed_until=None,
+            )
+        )
+
+        result = session.execute(statement)
+        session.commit()
+
+        if result.rowcount == 0:
             return {
-                "id": occurrence.id,
-                "schedule_id": occurrence.schedule_id,
-                "scheduled_for": occurrence.scheduled_for,
-                "status": occurrence.status,
-                "snoozed_until": occurrence.snoozed_until,
-                "acted_at": occurrence.acted_at,
+                "message": "Dose was already acted on"
             }
 
-        if occurrence.status == DoseStatus.TAKEN:
-            raise HTTPException(
-                status_code=400,
-                detail="Taken dose cannot be skipped",
-            )
-
-        occurrence.status = DoseStatus.SKIPPED
-        occurrence.acted_at = datetime.now(timezone.utc)
-        occurrence.snoozed_until = None
-
-        session.commit()
-        session.refresh(occurrence)
-
         return {
-            "id": occurrence.id,
-            "schedule_id": occurrence.schedule_id,
-            "scheduled_for": occurrence.scheduled_for,
-            "status": occurrence.status,
-            "snoozed_until": occurrence.snoozed_until,
-            "acted_at": occurrence.acted_at,
+            "message": "Dose marked as skipped"
         }
 
 @app.patch("/api/v1/occurrences/{occurrence_id}/snooze")
 def snooze_dose(
     occurrence_id: int,
     current_user: User = Depends(get_current_user),
-):      
+):
+    now_utc = datetime.now(timezone.utc)
+
     with SessionLocal() as session:
-        occurrence = result = session.execute(
+        occurrence = session.execute(
             select(DoseOccurrence)
             .join(
                 MedicineSchedule,
-                DoseOccurrence.schedule_id == MedicineSchedule.id,
+                DoseOccurrence.schedule_id
+                == MedicineSchedule.id,
             )
             .join(
                 Medicine,
-                MedicineSchedule.medicine_id == Medicine.id,
+                MedicineSchedule.medicine_id
+                == Medicine.id,
             )
             .join(
                 Person,
@@ -932,9 +932,7 @@ def snooze_dose(
                 DoseOccurrence.id == occurrence_id,
                 Person.user_id == current_user.id,
             )
-        )
-
-        occurrence = result.scalars().first()
+        ).scalar_one_or_none()
 
         if occurrence is None:
             raise HTTPException(
@@ -942,34 +940,31 @@ def snooze_dose(
                 detail="Dose occurrence not found",
             )
 
-        if occurrence.status == DoseStatus.TAKEN:
-            raise HTTPException(
-                status_code=400,
-                detail="Taken dose cannot be snoozed",
+        statement = (
+            update(DoseOccurrence)
+            .where(
+                DoseOccurrence.id == occurrence_id,
+                DoseOccurrence.status == DoseStatus.PENDING,
             )
-
-        if occurrence.status == DoseStatus.SKIPPED:
-            raise HTTPException(
-                status_code=400,
-                detail="Skipped dose cannot be snoozed",
+            .values(
+                status=DoseStatus.SNOOZED,
+                snoozed_until=(
+                    now_utc + timedelta(minutes=15)
+                ),
+                acted_at=now_utc,
             )
+        )
 
-        now = datetime.now(timezone.utc)
-
-        occurrence.status = DoseStatus.SNOOZED
-        occurrence.snoozed_until = now + timedelta(minutes=15)
-        occurrence.acted_at = now
-
+        result = session.execute(statement)
         session.commit()
-        session.refresh(occurrence)
+
+        if result.rowcount == 0:
+            return {
+                "message": "Dose was already acted on"
+            }
 
         return {
-            "id": occurrence.id,
-            "schedule_id": occurrence.schedule_id,
-            "scheduled_for": occurrence.scheduled_for,
-            "status": occurrence.status,
-            "snoozed_until": occurrence.snoozed_until,
-            "acted_at": occurrence.acted_at,
+            "message": "Dose snoozed for 15 minutes"
         }
 
 @app.patch("/api/v1/occurrences/mark-missed")

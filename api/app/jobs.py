@@ -249,6 +249,7 @@ def process_snoozed_reminders():
 
             if push_result["sent_count"] > 0:
                 occurrence.status = DoseStatus.PENDING
+                occurrence.acted_at = None
                 occurrence.first_reminder_sent_at = now_utc
                 occurrence.second_reminder_sent_at = None
 
