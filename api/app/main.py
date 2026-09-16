@@ -1031,11 +1031,6 @@ def mark_missed_occurrences(
             "message": "Overdue doses marked as missed",
         }
 
-@app.post("/api/v1/occurrences/generate-today")
-def generate_today_occurrences():
-    return (
-        generate_today_occurrences_for_all_schedules()
-    )
 
 @app.post(
     "/api/v1/auth/signup",
