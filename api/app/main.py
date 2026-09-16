@@ -222,9 +222,18 @@ def get_persons(
         return result.scalars().all()
 
 @app.patch("/api/v1/persons/{person_id}")
-def update_person(person_id: int, data: PersonUpdate):
+def update_person(
+    person_id: int,
+    data: PersonUpdate,
+    current_user: User = Depends(get_current_user),
+):
     with SessionLocal() as session:
-        person = session.get(Person, person_id)
+        person = session.execute(
+            select(Person).where(
+                Person.id == person_id,
+                Person.user_id == current_user.id,
+            )
+        ).scalar_one_or_none()
 
         if person is None:
             raise HTTPException(
@@ -232,7 +241,12 @@ def update_person(person_id: int, data: PersonUpdate):
                 detail="Person not found",
             )
 
-        person.name = data.name
+        update_data = data.model_dump(
+            exclude_unset=True
+        )
+
+        for field, value in update_data.items():
+            setattr(person, field, value)
 
         session.commit()
         session.refresh(person)
@@ -243,9 +257,17 @@ def update_person(person_id: int, data: PersonUpdate):
         }
 
 @app.delete("/api/v1/persons/{person_id}")
-def delete_person(person_id: int):
+def delete_person(
+    person_id: int,
+    current_user: User = Depends(get_current_user),
+):
     with SessionLocal() as session:
-        person = session.get(Person, person_id)
+        person = session.execute(
+            select(Person).where(
+                Person.id == person_id,
+                Person.user_id == current_user.id,
+            )
+        ).scalar_one_or_none()
 
         if person is None:
             raise HTTPException(
