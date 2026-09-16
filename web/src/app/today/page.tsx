@@ -6,11 +6,10 @@ import {
   useState,
 } from "react";
 
-import { useRouter } from "next/navigation";
-
 import {
   urlBase64ToUint8Array,
 } from "@/lib/push";
+import { authFetch } from "@/lib/api";
 
 type Dose = {
   occurrence_id: number;
@@ -38,32 +37,11 @@ export default function TodayPage() {
   const [doses, setDoses] = useState<Dose[]>([]);
   const [message, setMessage] = useState("Loading...");
 
-  const router = useRouter();
-
   const loadToday = useCallback(async () => {
-    const token = localStorage.getItem(
-      "access_token"
+  try {
+    const response = await authFetch(
+      "http://127.0.0.1:8000/api/v1/occurrences/today?tz=Asia/Kolkata"
     );
-
-    if (!token) {
-      router.push("/login");
-      return;
-    }
-
-    const response = await fetch(
-      "http://127.0.0.1:8000/api/v1/occurrences/today?tz=Asia/Kolkata",
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
-    );
-
-    if (response.status === 401) {
-      localStorage.removeItem("access_token");
-      router.push("/login");
-      return;
-    }
 
     const result = await response.json();
 
@@ -74,34 +52,37 @@ export default function TodayPage() {
       return;
     }
 
-    setDoses(result);
+    setDoses(
+      Array.isArray(result)
+        ? result
+        : []
+    );
+
     setMessage("");
-  }, [router]);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message !== "Session expired" &&
+      error.message !== "Authentication required"
+    ) {
+      setMessage("Failed to load doses");
+    }
+  }
+}, []);
 
   useEffect(() => {
     loadToday();
   }, [loadToday]);
 
   async function handleAction(
-    occurrenceId: number,
-    action: "taken" | "skipped" | "snooze"
-  ) {
-    const token = localStorage.getItem(
-      "access_token"
-    );
-
-    if (!token) {
-      router.push("/login");
-      return;
-    }
-
-    const response = await fetch(
+  occurrenceId: number,
+  action: "taken" | "skipped" | "snooze"
+) {
+  try {
+    const response = await authFetch(
       `http://127.0.0.1:8000/api/v1/occurrences/${occurrenceId}/${action}`,
       {
         method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
       }
     );
 
@@ -109,24 +90,26 @@ export default function TodayPage() {
       const result = await response.json();
 
       setMessage(
-        result.detail ?? "Action failed"
+        result.detail ??
+        "Action failed"
       );
 
       return;
     }
 
     await loadToday();
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message !== "Session expired" &&
+      error.message !== "Authentication required"
+    ) {
+      setMessage("Action failed");
+    }
   }
+}
 
   async function enableNotifications() {
-    const token =
-      localStorage.getItem("access_token");
-
-    if (!token) {
-      router.push("/login");
-      return;
-    }
-
     if (!("serviceWorker" in navigator)) {
       setMessage(
         "Push notifications are not supported."
@@ -170,26 +153,25 @@ export default function TodayPage() {
     const subscriptionJson =
       subscription.toJSON();
 
-    const response = await fetch(
-      "http://127.0.0.1:8000/api/v1/push/subscribe",
-      {
-        method: "POST",
+     const response = await authFetch(
+  "http://127.0.0.1:8000/api/v1/push/subscribe",
+  {
+    method: "POST",
 
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+    headers: {
+      "Content-Type": "application/json",
+    },
 
-        body: JSON.stringify({
-          endpoint:
-            subscriptionJson.endpoint,
-          p256dh:
-            subscriptionJson.keys?.p256dh,
-          auth:
-            subscriptionJson.keys?.auth,
-        }),
-      }
-    );
+    body: JSON.stringify({
+      endpoint:
+        subscriptionJson.endpoint,
+      p256dh:
+        subscriptionJson.keys?.p256dh,
+      auth:
+        subscriptionJson.keys?.auth,
+    }),
+  }
+);
 
     const result = await response.json();
 
