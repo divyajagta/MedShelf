@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+
+import { authFetch } from "@/lib/api";
 
 type Medicine = {
   id: number;
@@ -22,49 +23,47 @@ export default function MedicinesPage() {
   const [message, setMessage] =
     useState("Loading...");
 
-  const router = useRouter();
-
   useEffect(() => {
     async function loadMedicines() {
-      const token = localStorage.getItem(
-        "access_token"
-      );
-
-      if (!token) {
-        router.push("/login");
-        return;
-      }
-
-      const response = await fetch(
-        "http://127.0.0.1:8000/api/v1/medicines",
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (response.status === 401) {
-        localStorage.removeItem("access_token");
-        router.push("/login");
-        return;
-      }
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        setMessage(
-          result.detail ?? "Failed to load medicines"
+      try {
+        const response = await authFetch(
+          "http://127.0.0.1:8000/api/v1/medicines"
         );
-        return;
-      }
 
-      setMedicines(result);
-      setMessage("");
+        const result = await response.json();
+
+        if (!response.ok) {
+          setMessage(
+            result.detail ??
+              "Failed to load medicines"
+          );
+          return;
+        }
+
+        setMedicines(
+          Array.isArray(result)
+            ? result
+            : []
+        );
+
+        setMessage("");
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message !==
+            "Session expired" &&
+          error.message !==
+            "Authentication required"
+        ) {
+          setMessage(
+            "Failed to load medicines"
+          );
+        }
+      }
     }
 
     loadMedicines();
-  }, [router]);
+  }, []);
 
   return (
     <main className="min-h-screen p-8">
