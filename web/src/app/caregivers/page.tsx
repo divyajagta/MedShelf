@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
-  authFetch,
-} from "@/lib/api";
+  useEffect,
+  useState,
+} from "react";
+
+import AppNav from "@/components/AppNav";
+import { authFetch } from "@/lib/api";
 
 type Person = {
   id: number;
@@ -34,351 +35,510 @@ type Summary = {
   missed_count: number;
 };
 
-export default function CaregiversPage() {
-  const [persons, setPersons] = useState<Person[]>([]);
-  const [grants, setGrants] = useState<Grant[]>([]);
-  const [sharedPeople, setSharedPeople] =
-    useState<SharedPerson[]>([]);
+function getErrorMessage(
+  detail: unknown,
+  fallback: string
+) {
+  if (typeof detail === "string") {
+    return detail;
+  }
 
-  const [personId, setPersonId] = useState("");
-  const [email, setEmail] = useState("");
+  if (Array.isArray(detail)) {
+    return detail
+      .map((error) => {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "msg" in error
+        ) {
+          return String(error.msg);
+        }
+
+        return "Invalid input";
+      })
+      .join(", ");
+  }
+
+  return fallback;
+}
+
+export default function CaregiversPage() {
+  const [persons, setPersons] =
+    useState<Person[]>([]);
+
+  const [grants, setGrants] =
+    useState<Grant[]>([]);
+
+  const [
+    sharedPeople,
+    setSharedPeople,
+  ] = useState<SharedPerson[]>([]);
+
+  const [personId, setPersonId] =
+    useState("");
+
+  const [email, setEmail] =
+    useState("");
+
   const [summary, setSummary] =
     useState<Summary | null>(null);
 
-  const [message, setMessage] = useState("");
+  const [message, setMessage] =
+    useState("");
 
-  const router = useRouter();
+  async function loadData() {
+    try {
+      const [
+        personsResponse,
+        grantsResponse,
+        sharedResponse,
+      ] = await Promise.all([
+        authFetch(
+          "http://127.0.0.1:8000/api/v1/persons"
+        ),
 
-  async function getToken() {
-    const token =
-      localStorage.getItem("access_token");
+        authFetch(
+          "http://127.0.0.1:8000/api/v1/caregivers/grants"
+        ),
 
-    if (!token) {
-      router.push("/login");
-      return null;
-    }
+        authFetch(
+          "http://127.0.0.1:8000/api/v1/caregivers/shared-with-me"
+        ),
+      ]);
 
-    return token;
-  }
+      if (
+        !personsResponse.ok ||
+        !grantsResponse.ok ||
+        !sharedResponse.ok
+      ) {
+        setMessage(
+          "Could not load caregiver data."
+        );
+        return;
+      }
 
-async function loadData() {
-  try {
-    const [
-      personsResponse,
-      grantsResponse,
-      sharedResponse,
-    ] = await Promise.all([
-      authFetch(
-        "http://127.0.0.1:8000/api/v1/persons"
-      ),
-      authFetch(
-        "http://127.0.0.1:8000/api/v1/caregivers/grants"
-      ),
-      authFetch(
-        "http://127.0.0.1:8000/api/v1/caregivers/shared-with-me"
-      ),
-    ]);
+      const [
+        personsData,
+        grantsData,
+        sharedData,
+      ] = await Promise.all([
+        personsResponse.json(),
+        grantsResponse.json(),
+        sharedResponse.json(),
+      ]);
 
-    if (
-      !personsResponse.ok ||
-      !grantsResponse.ok ||
-      !sharedResponse.ok
-    ) {
-      setMessage(
-        "Could not load caregiver data."
+      setPersons(
+        Array.isArray(personsData)
+          ? personsData
+          : []
       );
-      return;
-    }
 
-    const [
-      personsData,
-      grantsData,
-      sharedData,
-    ] = await Promise.all([
-      personsResponse.json(),
-      grantsResponse.json(),
-      sharedResponse.json(),
-    ]);
-
-    setPersons(
-      Array.isArray(personsData)
-        ? personsData
-        : []
-    );
-
-    setGrants(
-      Array.isArray(grantsData)
-        ? grantsData
-        : []
-    );
-
-    setSharedPeople(
-      Array.isArray(sharedData)
-        ? sharedData
-        : []
-    );
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message !==
-        "Session expired" &&
-      error.message !==
-        "Authentication required"
-    ) {
-      setMessage(
-        "Could not load caregiver data."
+      setGrants(
+        Array.isArray(grantsData)
+          ? grantsData
+          : []
       );
+
+      setSharedPeople(
+        Array.isArray(sharedData)
+          ? sharedData
+          : []
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message !==
+          "Session expired" &&
+        error.message !==
+          "Authentication required"
+      ) {
+        setMessage(
+          "Could not load caregiver data."
+        );
+      }
     }
   }
-}
 
   useEffect(() => {
     loadData();
   }, []);
 
   async function grantAccess() {
-    const token = await getToken();
+    if (!personId || !email.trim()) {
+      setMessage(
+        "Select a person and enter a caregiver email."
+      );
+      return;
+    }
 
-    if (!token) return;
+    try {
+      const response = await authFetch(
+        "http://127.0.0.1:8000/api/v1/caregivers/grant",
+        {
+          method: "POST",
 
-    const response = await fetch(
-      "http://127.0.0.1:8000/api/v1/caregivers/grant",
-      {
-        method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
 
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-
-        body: JSON.stringify({
-          person_id: Number(personId),
-          caregiver_email: email,
-        }),
-      }
-    );
-
-    const result = await response.json();
-
-    if (!response.ok) {
-        if (Array.isArray(result.detail)) {
-            setMessage(
-            result.detail
-                .map((error: { msg?: string }) =>
-                error.msg ?? "Invalid input"
-                )
-                .join(", ")
-            );
-        } else {
-            setMessage(
-            result.detail ?? "Grant failed"
-            );
+          body: JSON.stringify({
+            person_id:
+              Number(personId),
+            caregiver_email:
+              email.trim(),
+          }),
         }
+      );
 
+      const result =
+        await response.json();
+
+      if (!response.ok) {
+        setMessage(
+          getErrorMessage(
+            result.detail,
+            "Grant failed"
+          )
+        );
         return;
-        }
+      }
 
-    setMessage("Access granted");
-    setEmail("");
+      setMessage(
+        "Caregiver access granted."
+      );
 
-    await loadData();
+      setEmail("");
+
+      await loadData();
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message !==
+          "Session expired" &&
+        error.message !==
+          "Authentication required"
+      ) {
+        setMessage(
+          "Could not grant access."
+        );
+      }
+    }
   }
 
   async function revokeAccess(
     personId: number,
     caregiverUserId: number
   ) {
-    const token = await getToken();
+    try {
+      const response = await authFetch(
+        `http://127.0.0.1:8000/api/v1/caregivers/${personId}/${caregiverUserId}`,
+        {
+          method: "DELETE",
+        }
+      );
 
-    if (!token) return;
-
-    const response = await fetch(
-      `http://127.0.0.1:8000/api/v1/caregivers/${personId}/${caregiverUserId}`,
-      {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+      if (!response.ok) {
+        setMessage(
+          "Could not revoke access."
+        );
+        return;
       }
-    );
 
-    if (!response.ok) {
-      setMessage("Revoke failed");
-      return;
+      setMessage(
+        "Caregiver access revoked."
+      );
+
+      await loadData();
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message !==
+          "Session expired" &&
+        error.message !==
+          "Authentication required"
+      ) {
+        setMessage(
+          "Could not revoke access."
+        );
+      }
     }
-
-    setMessage("Access revoked");
-
-    await loadData();
   }
 
   async function loadSummary(
     personId: number
   ) {
-    const token = await getToken();
-
-    if (!token) return;
-
-    const response = await fetch(
-      `http://127.0.0.1:8000/api/v1/caregivers/${personId}/summary`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
-    );
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      setMessage(
-        result.detail ?? "Summary failed"
+    try {
+      const response = await authFetch(
+        `http://127.0.0.1:8000/api/v1/caregivers/${personId}/summary`
       );
-      return;
-    }
 
-    setSummary(result);
+      const result =
+        await response.json();
+
+      if (!response.ok) {
+        setMessage(
+          getErrorMessage(
+            result.detail,
+            "Could not load summary."
+          )
+        );
+        return;
+      }
+
+      setSummary(result);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message !==
+          "Session expired" &&
+        error.message !==
+          "Authentication required"
+      ) {
+        setMessage(
+          "Could not load summary."
+        );
+      }
+    }
   }
 
   return (
-    <main className="min-h-screen p-8">
-      <div className="mx-auto max-w-2xl">
+    <div className="min-h-screen bg-slate-50">
+      <AppNav />
 
-        <div className="flex gap-4">
-          <Link href="/today">Today</Link>
-          <Link href="/medicines">Medicines</Link>
-          <Link href="/history">History</Link>
-          <Link href="/alerts">Alerts</Link>
-          <Link href="/caregivers">Caregivers</Link>
+      <main className="mx-auto max-w-6xl px-6 py-10">
+
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-wider text-emerald-600">
+            Family access
+          </p>
+
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">
+            Caregivers
+          </h1>
+
+          <p className="mt-2 max-w-2xl text-sm text-slate-500">
+            Share a family member's
+            medicine summary with another
+            MedShelf user and revoke access
+            whenever needed.
+          </p>
         </div>
 
-        <h1 className="mt-8 text-3xl font-bold">
-          Caregivers
-        </h1>
-
-        <h2 className="mt-8 text-xl font-bold">
-          Grant Access
-        </h2>
-
-        <select
-          value={personId}
-          onChange={(event) =>
-            setPersonId(event.target.value)
-          }
-          className="mt-3 w-full border p-2"
-        >
-          <option value="">
-            Select person
-          </option>
-
-          {persons.map((person) => (
-            <option
-              key={person.id}
-              value={person.id}
-            >
-              {person.name}
-            </option>
-          ))}
-        </select>
-
-        <input
-          type="email"
-          placeholder="Caregiver email"
-          value={email}
-          onChange={(event) =>
-            setEmail(event.target.value)
-          }
-          className="mt-3 w-full border p-2"
-        />
-
-        <button
-          onClick={grantAccess}
-          className="mt-3 border px-4 py-2"
-        >
-          Grant Access
-        </button>
-
         {message && (
-          <p className="mt-3">
+          <div className="mt-6 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
             {message}
-          </p>
+          </div>
         )}
 
-        <h2 className="mt-10 text-xl font-bold">
-          Access I Granted
-        </h2>
+        <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
 
-        {grants.map((grant) => (
-          <div
-            key={grant.id}
-            className="mt-3 border p-4"
-          >
-            <p>
-              {grant.person_name}
-            </p>
+          <h2 className="text-lg font-semibold text-slate-900">
+            Grant caregiver access
+          </h2>
 
-            <p>
-              {grant.caregiver_email}
-            </p>
+          <p className="mt-1 text-sm text-slate-500">
+            Choose a person and enter the
+            email address of another
+            MedShelf account.
+          </p>
 
-            <button
-              onClick={() =>
-                revokeAccess(
-                  grant.person_id,
-                  grant.caregiver_user_id
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+
+            <select
+              value={personId}
+              onChange={(event) =>
+                setPersonId(
+                  event.target.value
                 )
               }
-              className="mt-2 border px-3 py-1"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
             >
-              Revoke
-            </button>
-          </div>
-        ))}
+              <option value="">
+                Select person
+              </option>
 
-        <h2 className="mt-10 text-xl font-bold">
-          Shared With Me
-        </h2>
+              {persons.map((person) => (
+                <option
+                  key={person.id}
+                  value={person.id}
+                >
+                  {person.name}
+                </option>
+              ))}
+            </select>
 
-        {sharedPeople.map((person) => (
-          <div
-            key={person.person_id}
-            className="mt-3 border p-4"
-          >
-            <p>
-              {person.person_name}
-            </p>
-
-            <button
-              onClick={() =>
-                loadSummary(person.person_id)
+            <input
+              type="email"
+              placeholder="Caregiver email"
+              value={email}
+              onChange={(event) =>
+                setEmail(
+                  event.target.value
+                )
               }
-              className="mt-2 border px-3 py-1"
-            >
-              View 7-Day Summary
-            </button>
+              className="rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+            />
           </div>
-        ))}
 
-        {summary && (
-          <div className="mt-8 border p-4">
-            <h2 className="font-bold">
-              {summary.person_name} Summary
+          <button
+            onClick={grantAccess}
+            className="mt-4 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+          >
+            Grant Access
+          </button>
+        </section>
+
+        <div className="mt-8 grid gap-6 lg:grid-cols-2">
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+
+            <h2 className="text-lg font-semibold text-slate-900">
+              Access I granted
             </h2>
 
-            <p>
-              Taken: {summary.taken_count}
+            <p className="mt-1 text-sm text-slate-500">
+              People you currently share.
             </p>
 
-            <p>
-              Skipped: {summary.skipped_count}
+            <div className="mt-5 space-y-3">
+              {grants.length === 0 && (
+                <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">
+                  No caregiver access
+                  granted yet.
+                </p>
+              )}
+
+              {grants.map((grant) => (
+                <div
+                  key={grant.id}
+                  className="rounded-xl border border-slate-200 p-4"
+                >
+                  <p className="font-semibold text-slate-900">
+                    {grant.person_name}
+                  </p>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    {
+                      grant.caregiver_email
+                    }
+                  </p>
+
+                  <button
+                    onClick={() =>
+                      revokeAccess(
+                        grant.person_id,
+                        grant.caregiver_user_id
+                      )
+                    }
+                    className="mt-4 rounded-lg border border-rose-200 px-3 py-2 text-sm font-medium text-rose-600 transition hover:bg-rose-50"
+                  >
+                    Revoke access
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+
+            <h2 className="text-lg font-semibold text-slate-900">
+              Shared with me
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-500">
+              People whose summaries you
+              can currently view.
             </p>
 
-            <p>
-              Missed: {summary.missed_count}
-            </p>
-          </div>
+            <div className="mt-5 space-y-3">
+              {sharedPeople.length ===
+                0 && (
+                <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">
+                  Nothing has been shared
+                  with you yet.
+                </p>
+              )}
+
+              {sharedPeople.map(
+                (person) => (
+                  <div
+                    key={
+                      person.person_id
+                    }
+                    className="rounded-xl border border-slate-200 p-4"
+                  >
+                    <p className="font-semibold text-slate-900">
+                      {
+                        person.person_name
+                      }
+                    </p>
+
+                    <button
+                      onClick={() =>
+                        loadSummary(
+                          person.person_id
+                        )
+                      }
+                      className="mt-4 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
+                    >
+                      View 7-Day Summary
+                    </button>
+                  </div>
+                )
+              )}
+            </div>
+          </section>
+        </div>
+
+        {summary && (
+          <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+
+            <div>
+              <p className="text-sm font-medium text-slate-500">
+                7-Day Summary
+              </p>
+
+              <h2 className="mt-1 text-xl font-semibold text-slate-900">
+                {summary.person_name}
+              </h2>
+            </div>
+
+            <div className="mt-5 grid gap-4 sm:grid-cols-3">
+
+              <div className="rounded-xl bg-emerald-50 p-4">
+                <p className="text-sm text-emerald-700">
+                  Taken
+                </p>
+
+                <p className="mt-1 text-2xl font-bold text-emerald-800">
+                  {summary.taken_count}
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-amber-50 p-4">
+                <p className="text-sm text-amber-700">
+                  Skipped
+                </p>
+
+                <p className="mt-1 text-2xl font-bold text-amber-800">
+                  {summary.skipped_count}
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-rose-50 p-4">
+                <p className="text-sm text-rose-700">
+                  Missed
+                </p>
+
+                <p className="mt-1 text-2xl font-bold text-rose-800">
+                  {summary.missed_count}
+                </p>
+              </div>
+            </div>
+          </section>
         )}
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }

@@ -1,12 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import {
+  useEffect,
+  useState,
+} from "react";
 
+import AppNav from "@/components/AppNav";
 import { authFetch } from "@/lib/api";
 
 type Alert = {
-  type: "expiry" | "low_stock";
+  type:
+    | "expiry"
+    | "low_stock";
+
   medicine_id: number;
   medicine_name: string;
   person_name: string;
@@ -24,9 +30,10 @@ export default function AlertsPage() {
   useEffect(() => {
     async function loadAlerts() {
       try {
-        const response = await authFetch(
-          "http://127.0.0.1:8000/api/v1/alerts"
-        );
+        const response =
+          await authFetch(
+            "http://127.0.0.1:8000/api/v1/alerts"
+          );
 
         const result =
           await response.json();
@@ -64,83 +71,163 @@ export default function AlertsPage() {
     loadAlerts();
   }, []);
 
+  const lowStockCount =
+    alerts.filter(
+      (alert) =>
+        alert.type ===
+        "low_stock"
+    ).length;
+
+  const expiryCount =
+    alerts.filter(
+      (alert) =>
+        alert.type === "expiry"
+    ).length;
+
   return (
-    <main className="min-h-screen p-8">
-      <div className="mx-auto max-w-2xl">
+    <div className="min-h-screen bg-slate-50">
+      <AppNav />
 
-        <div className="flex gap-4">
-          <Link href="/today">
-            Today
-          </Link>
+      <main className="mx-auto max-w-6xl px-6 py-10">
 
-          <Link href="/medicines">
-            Medicines
-          </Link>
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-wider text-emerald-600">
+            Cabinet health
+          </p>
 
-          <Link href="/history">
-            History
-          </Link>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">
+            Medicine Alerts
+          </h1>
 
-          <Link href="/alerts">
-            Alerts
-          </Link>
+          <p className="mt-2 text-sm text-slate-500">
+            Keep an eye on low stock and
+            medicines approaching their
+            expiry date.
+          </p>
         </div>
 
-        <h1 className="mt-8 text-3xl font-bold">
-          Medicine Alerts
-        </h1>
+        <div className="mt-8 grid gap-4 sm:grid-cols-2">
+
+          <div className="rounded-2xl bg-amber-50 p-5">
+            <p className="text-sm font-medium text-amber-700">
+              Low stock
+            </p>
+
+            <p className="mt-2 text-3xl font-bold text-amber-800">
+              {lowStockCount}
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-rose-50 p-5">
+            <p className="text-sm font-medium text-rose-700">
+              Expiring soon
+            </p>
+
+            <p className="mt-2 text-3xl font-bold text-rose-800">
+              {expiryCount}
+            </p>
+          </div>
+        </div>
 
         {message && (
-          <p className="mt-4">
+          <div className="mt-6 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
             {message}
-          </p>
+          </div>
         )}
 
         {!message &&
           alerts.length === 0 && (
-            <p className="mt-4">
-              No stock or expiry alerts.
-            </p>
+            <div className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-xl text-emerald-600">
+                ✓
+              </div>
+
+              <p className="mt-4 font-semibold text-slate-800">
+                No medicine alerts
+              </p>
+
+              <p className="mt-2 text-sm text-slate-500">
+                No low-stock or upcoming
+                expiry alerts right now.
+              </p>
+            </div>
           )}
 
-        <div className="mt-6 space-y-4">
+        <div className="mt-8 grid gap-5 md:grid-cols-2">
           {alerts.map(
-            (alert, index) => (
-              <div
-                key={`${alert.type}-${alert.medicine_id}-${index}`}
-                className="rounded-lg border p-4"
-              >
-                <p className="font-bold">
-                  {alert.person_name}
-                </p>
+            (alert, index) => {
+              const isLowStock =
+                alert.type ===
+                "low_stock";
 
-                <h2 className="text-xl font-semibold">
-                  {alert.medicine_name}
-                </h2>
+              return (
+                <article
+                  key={`${alert.type}-${alert.medicine_id}-${index}`}
+                  className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-4">
 
-                {alert.type ===
-                  "low_stock" && (
-                  <p className="mt-2">
-                    Low stock:{" "}
-                    {
-                      alert.quantity_remaining
-                    }{" "}
-                    remaining
-                  </p>
-                )}
+                    <div>
+                      <p className="text-sm font-medium text-emerald-600">
+                        {
+                          alert.person_name
+                        }
+                      </p>
 
-                {alert.type ===
-                  "expiry" && (
-                  <p className="mt-2">
-                    Expiring soon:{" "}
-                    {alert.expiry_date}
-                  </p>
-                )}
-              </div>
-            )
+                      <h2 className="mt-1 text-xl font-semibold text-slate-900">
+                        {
+                          alert.medicine_name
+                        }
+                      </h2>
+                    </div>
+
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                        isLowStock
+                          ? "bg-amber-50 text-amber-700"
+                          : "bg-rose-50 text-rose-700"
+                      }`}
+                    >
+                      {isLowStock
+                        ? "Low stock"
+                        : "Expiry"}
+                    </span>
+                  </div>
+
+                  {isLowStock ? (
+                    <div className="mt-5 rounded-xl bg-amber-50 p-4">
+
+                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">
+                        Remaining stock
+                      </p>
+
+                      <p className="mt-1 text-2xl font-bold text-amber-800">
+                        {
+                          alert
+                            .quantity_remaining
+                        }
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="mt-5 rounded-xl bg-rose-50 p-4">
+
+                      <p className="text-xs font-semibold uppercase tracking-wide text-rose-600">
+                        Expiry date
+                      </p>
+
+                      <p className="mt-1 font-semibold text-rose-800">
+                        {
+                          alert.expiry_date
+                        }
+                      </p>
+                    </div>
+                  )}
+                </article>
+              );
+            }
           )}
         </div>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }
