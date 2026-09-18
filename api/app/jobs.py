@@ -104,7 +104,8 @@ def process_due_reminders():
                     Person.name,
                     Medicine.name,
                     Medicine.strength,
-                )
+                    MedicineSchedule.timezone,
+)
                 .join(
                     Medicine,
                     Medicine.person_id == Person.id,
@@ -124,12 +125,40 @@ def process_due_reminders():
                 continue
 
             (
-                user_id,
-                person_name,
-                medicine_name,
-                medicine_strength,
-            ) = dose_details
+                    user_id,
+                    person_name,
+                    medicine_name,
+                    medicine_strength,
+                    schedule_timezone,
+                ) = dose_details
+            try:
+                local_timezone = ZoneInfo(
+                    schedule_timezone
+                )
 
+            except ZoneInfoNotFoundError:
+                continue
+
+            effective_time = (
+                occurrence.snoozed_until
+                or occurrence.scheduled_for
+            )
+
+            effective_local = (
+                effective_time.astimezone(
+                    local_timezone
+                )
+            )
+
+            now_local = now_utc.astimezone(
+                local_timezone
+            )
+
+            if (
+                effective_local.date()
+                < now_local.date()
+            ):
+                continue
             if occurrence.first_reminder_sent_at is None:
                 
                 push_result = send_push_to_user(
@@ -266,25 +295,72 @@ def mark_unanswered_doses_missed():
 
     with SessionLocal() as session:
         result = session.execute(
-            select(DoseOccurrence).where(
-                DoseOccurrence.status == DoseStatus.PENDING,
-                DoseOccurrence.second_reminder_sent_at.is_not(None),
-                DoseOccurrence.second_reminder_sent_at
-                <= now_utc - timedelta(minutes=30),
+            select(
+                DoseOccurrence,
+                MedicineSchedule,
+            )
+            .join(
+                MedicineSchedule,
+                MedicineSchedule.id
+                == DoseOccurrence.schedule_id,
+            )
+            .where(
+                DoseOccurrence.status.in_(
+                    [
+                        DoseStatus.PENDING,
+                        DoseStatus.SNOOZED,
+                    ]
+                )
             )
         )
 
-        occurrences = result.scalars().all()
+        rows = result.all()
 
         missed_count = 0
+        invalid_timezone_count = 0
 
-        for occurrence in occurrences:
-            occurrence.status = DoseStatus.MISSED
-            occurrence.acted_at = now_utc
-            missed_count += 1
+        for occurrence, schedule in rows:
+            try:
+                local_timezone = ZoneInfo(
+                    schedule.timezone
+                )
+
+            except ZoneInfoNotFoundError:
+                invalid_timezone_count += 1
+                continue
+
+            effective_time = (
+                occurrence.snoozed_until
+                or occurrence.scheduled_for
+            )
+
+            effective_local = (
+                effective_time.astimezone(
+                    local_timezone
+                )
+            )
+
+            now_local = now_utc.astimezone(
+                local_timezone
+            )
+
+            if (
+                effective_local.date()
+                < now_local.date()
+            ):
+                occurrence.status = (
+                    DoseStatus.MISSED
+                )
+
+                occurrence.acted_at = now_utc
+                occurrence.snoozed_until = None
+
+                missed_count += 1
 
         session.commit()
 
         return {
-            "missed_count": missed_count
+            "missed_count": missed_count,
+            "invalid_timezone_count":
+                invalid_timezone_count,
         }
