@@ -240,6 +240,7 @@ def process_snoozed_reminders():
                     Person.name,
                     Medicine.name,
                     Medicine.strength,
+                    MedicineSchedule.timezone,
                 )
                 .join(
                     Medicine,
@@ -262,8 +263,31 @@ def process_snoozed_reminders():
                 person_name,
                 medicine_name,
                 medicine_strength,
+                schedule_timezone,
             ) = dose_details
+            try:
+                local_timezone = ZoneInfo(
+                    schedule_timezone
+                )
 
+            except ZoneInfoNotFoundError:
+                continue
+
+            snoozed_local = (
+                occurrence.snoozed_until.astimezone(
+                    local_timezone
+                )
+            )
+
+            now_local = now_utc.astimezone(
+                local_timezone
+            )
+
+            if (
+                snoozed_local.date()
+                < now_local.date()
+            ):
+                continue
             push_result = send_push_to_user(
                 session=session,
                 user_id=user_id,

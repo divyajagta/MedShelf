@@ -3,7 +3,6 @@ from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import select, update
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from sqlalchemy.dialects.postgresql import insert
 from api.app.jobs import (
     generate_today_occurrences_for_all_schedules,
     process_due_reminders,
@@ -510,7 +509,14 @@ def create_medicine_schedule(
                 status_code=404,
                 detail="Medicine not found",
             )
+        try:
+            ZoneInfo(data.timezone)
 
+        except ZoneInfoNotFoundError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid timezone",
+    )
         schedule = MedicineSchedule(
             medicine_id=medicine.id,
             time_of_day=data.time_of_day,
@@ -989,47 +995,6 @@ def snooze_dose(
             "message": "Dose snoozed for 15 minutes"
         }
 
-@app.patch("/api/v1/occurrences/mark-missed")
-def mark_missed_occurrences(
-    current_user: User = Depends(get_current_user),
-):
-    now = datetime.now(timezone.utc)
-
-    with SessionLocal() as session:
-        result = session.execute(
-            select(DoseOccurrence)
-            .join(
-                MedicineSchedule,
-                DoseOccurrence.schedule_id
-                == MedicineSchedule.id,
-            )
-            .join(
-                Medicine,
-                MedicineSchedule.medicine_id
-                == Medicine.id,
-            )
-            .join(
-                Person,
-                Medicine.person_id == Person.id,
-            )
-            .where(
-                DoseOccurrence.status == DoseStatus.PENDING,
-                DoseOccurrence.scheduled_for < now,
-                Person.user_id == current_user.id,
-            )
-        )
-
-        occurrences = result.scalars().all()
-
-        for occurrence in occurrences:
-            occurrence.status = DoseStatus.MISSED
-
-        session.commit()
-
-        return {
-            "updated_count": len(occurrences),
-            "message": "Overdue doses marked as missed",
-        }
 
 
 @app.post(
